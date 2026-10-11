@@ -36,6 +36,14 @@
     .small{font-size:12px;color:var(--muted)}
     .chart-wrap{height:220px;position:relative}
     canvas{width:100%;height:100%;display:block}
+    #chartPanel.chart-expanded{position:fixed;inset:0;z-index:9999;background:#0b1220;border:0;border-radius:0;padding:20px;overflow:auto}
+    #chartPanel.chart-expanded .chart-wrap{height:calc(100vh - 150px);min-height:280px}
+    #chartPanel:fullscreen{background:#0b1220;border:0;border-radius:0;padding:20px;overflow:auto}
+    #chartPanel:fullscreen .chart-wrap{height:calc(100vh - 150px);min-height:280px}
+    #chartPanel:fullscreen .section-head{margin-bottom:18px}
+    #chartPanel:fullscreen .legend{font-size:14px}
+    #chartPanel:fullscreen #fullscreenHint{margin-top:18px}
+    @media(max-width:700px){#chartPanel:fullscreen{padding:12px}#chartPanel:fullscreen .chart-wrap{height:calc(100vh - 145px);min-height:220px}#chartPanel:fullscreen .section-head{align-items:flex-start}#chartPanel:fullscreen .actions{flex-wrap:wrap;justify-content:flex-end}#chartPanel.chart-expanded{padding:12px}#chartPanel.chart-expanded .chart-wrap{height:calc(100vh - 145px);min-height:220px}}
     .legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px;color:var(--muted);font-size:12px}
     .legend span{display:inline-flex;align-items:center;gap:6px}.swatch{height:3px;width:15px;border-radius:4px;display:inline-block}
     .log{height:280px;overflow:auto;background:#07101c;border:1px solid #24334a;border-radius:11px;padding:10px;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;scrollbar-width:thin}
@@ -84,14 +92,21 @@
     <div class="hint" id="sensorInfo">Status sensor: —</div>
   </section>
 
-  <section class="panel">
-    <div class="section-head"><h2>Grafik real-time</h2><span class="small">Maks. 60 titik terakhir</span></div>
+  <section class="panel" id="chartPanel">
+    <div class="section-head">
+      <h2>Grafik real-time</h2>
+      <div class="actions">
+        <span class="small">Maks. 60 titik terakhir</span>
+        <button type="button" class="secondary" id="fullscreenBtn" aria-label="Tampilkan grafik layar penuh">⛶ Layar penuh</button>
+      </div>
+    </div>
     <div class="chart-wrap"><canvas id="chart"></canvas></div>
     <div class="legend">
       <span><i class="swatch" style="background:#ffcc70"></i>Raw</span>
       <span><i class="swatch" style="background:#75a7ff"></i>EMA</span>
       <span><i class="swatch" style="background:#55d6be"></i>AMA</span>
     </div>
+    <div class="hint" id="fullscreenHint">Tekan “Layar penuh” untuk memperbesar grafik. Tekan “Keluar layar penuh” atau tombol Esc untuk kembali.</div>
   </section>
 
   <section class="panel">
@@ -218,6 +233,34 @@
     series.forEach(([key,color])=>{ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();let started=false;points.forEach((p,i)=>{const v=p[key];if(!Number.isFinite(v))return; if(!started){ctx.moveTo(x(i),y(v));started=true}else ctx.lineTo(x(i),y(v))});ctx.stroke()});
     ctx.textAlign='left';ctx.fillStyle='#91a4bf';ctx.fillText('lama →',pad.l,h-4);
   }
+  const chartPanel = $('chartPanel');
+  const fullscreenBtn = $('fullscreenBtn');
+
+  async function toggleChartFullscreen() {
+    try {
+      if (document.fullscreenElement === chartPanel) {
+        await document.exitFullscreen();
+      } else if (chartPanel.requestFullscreen) {
+        await chartPanel.requestFullscreen();
+      } else {
+        chartPanel.classList.toggle('chart-expanded');
+        updateFullscreenButton();
+      }
+    } catch (e) {
+      addLog('Mode layar penuh tidak tersedia di browser ini: ' + e.message, 'err');
+    }
+  }
+
+  function updateFullscreenButton() {
+    const isFullscreen = document.fullscreenElement === chartPanel || chartPanel.classList.contains('chart-expanded');
+    fullscreenBtn.textContent = isFullscreen ? '✕ Keluar layar penuh' : '⛶ Layar penuh';
+    fullscreenBtn.setAttribute('aria-label', isFullscreen ? 'Keluar dari layar penuh' : 'Tampilkan grafik layar penuh');
+    requestAnimationFrame(drawChart);
+  }
+
+  fullscreenBtn.addEventListener('click', toggleChartFullscreen);
+  document.addEventListener('fullscreenchange', updateFullscreenButton);
+
   $('connectBtn').addEventListener('click', connect);
   $('disconnectBtn').addEventListener('click',()=>stop());
   $('clearBtn').addEventListener('click',()=>{$('log').innerHTML='';addLog('Log dibersihkan.')});
