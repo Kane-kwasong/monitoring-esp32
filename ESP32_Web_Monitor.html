@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101827">
+  <title>ESP32 Sensor Monitor</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0b1220;--panel:#121c2d;--panel2:#172338;--line:#27364d;--text:#edf3ff;--muted:#9aabc4;--accent:#55d6be;--blue:#75a7ff;--warn:#ffcc70;--red:#ff7f86}
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(160deg,#101b2d 0%,var(--bg) 50%);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text)}
+    .wrap{max-width:1100px;margin:auto;padding:18px 14px 36px}
+    header{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:18px}
+    h1{font-size:clamp(22px,5vw,32px);line-height:1.15;margin:0 0 7px;letter-spacing:-.5px}
+    .sub{color:var(--muted);font-size:13px}
+    .pill{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:999px;padding:7px 11px;color:var(--muted);font-size:12px;white-space:nowrap}
+    .dot{width:8px;height:8px;border-radius:50%;background:#718096;display:inline-block}
+    .dot.on{background:var(--accent);box-shadow:0 0 12px #55d6be66}.dot.bad{background:var(--red)}
+    .panel{background:linear-gradient(180deg,#152136,#111a2a);border:1px solid var(--line);border-radius:16px;padding:15px;margin-bottom:14px;box-shadow:0 8px 28px #00000012}
+    .connect{display:grid;grid-template-columns:1fr auto auto;gap:9px;align-items:end}
+    label{display:block;color:var(--muted);font-size:12px;margin:0 0 6px}
+    input,select,button{font:inherit;border-radius:10px;min-height:43px}
+    input{width:100%;padding:10px 12px;background:#0b1423;color:var(--text);border:1px solid #34445d;outline:none}
+    input:focus{border-color:var(--blue)}
+    button{border:0;padding:10px 15px;font-weight:700;cursor:pointer;background:var(--accent);color:#08201d}
+    button.secondary{background:#263650;color:var(--text);border:1px solid #3a4b66}
+    button:disabled{opacity:.55;cursor:wait}
+    .hint{color:var(--muted);font-size:12px;margin:10px 1px 0}
+    .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+    .metric{background:#0e1828;border:1px solid #25354b;border-radius:13px;padding:13px;min-width:0}
+    .metric .name{color:var(--muted);font-size:12px}
+    .metric .value{font-size:clamp(20px,3.6vw,29px);font-weight:750;letter-spacing:-.5px;margin-top:5px;overflow-wrap:anywhere}
+    .metric .unit{font-size:12px;color:var(--muted);font-weight:500}
+    .section-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}
+    h2{font-size:16px;margin:0}
+    .small{font-size:12px;color:var(--muted)}
+    .chart-wrap{height:220px;position:relative}
+    canvas{width:100%;height:100%;display:block}
+    .legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px;color:var(--muted);font-size:12px}
+    .legend span{display:inline-flex;align-items:center;gap:6px}.swatch{height:3px;width:15px;border-radius:4px;display:inline-block}
+    .log{height:280px;overflow:auto;background:#07101c;border:1px solid #24334a;border-radius:11px;padding:10px;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;scrollbar-width:thin}
+    .logline{white-space:pre-wrap;overflow-wrap:anywhere;border-bottom:1px solid #17263a;padding:3px 0;color:#c5d4e9}
+    .logline .time{color:#7891b2}.logline .ok{color:var(--accent)}.logline .err{color:var(--red)}
+    .actions{display:flex;gap:8px;align-items:center}
+    .footer{color:#71839d;text-align:center;font-size:11px;margin-top:18px}
+    @media(max-width:700px){.wrap{padding:14px 10px 26px}.connect{grid-template-columns:1fr 1fr}.connect .urlfield{grid-column:1/-1}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.panel{padding:12px}.chart-wrap{height:190px}header{align-items:center}.pill{font-size:11px;padding:6px 8px}}
+    @media(max-width:380px){.grid{gap:7px}.metric{padding:10px}.metric .value{font-size:21px}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>ESP32 Sensor Monitor</h1>
+      <div class="sub">Dashboard sensor · pembaruan langsung dari REST API</div>
+    </div>
+    <div class="pill"><i id="statusDot" class="dot"></i><span id="statusText">Belum terhubung</span></div>
+  </header>
+
+  <section class="panel">
+    <div class="connect">
+      <div class="urlfield">
+        <label for="baseUrl">Alamat API ESP32</label>
+        <input id="baseUrl" type="url" placeholder="http://192.168.4.1" value="http://192.168.4.1" autocapitalize="off" spellcheck="false">
+      </div>
+      <button id="connectBtn">Hubungkan</button>
+      <button id="disconnectBtn" class="secondary" disabled>Putuskan</button>
+    </div>
+    <div class="hint">HP dan ESP32 harus berada di jaringan yang sama. Masukkan alamat dasar ESP32 saja, tanpa <code>/api/data</code>. Contoh: <code>http://192.168.4.1</code>.</div>
+  </section>
+
+  <section class="panel">
+    <div class="section-head"><h2>Data sensor saat ini</h2><span class="small" id="lastUpdate">Menunggu data…</span></div>
+    <div class="grid">
+      <div class="metric"><div class="name">Jarak mentah</div><div class="value" id="raw">— <span class="unit">cm</span></div></div>
+      <div class="metric"><div class="name">EMA</div><div class="value" id="ema">— <span class="unit">cm</span></div></div>
+      <div class="metric"><div class="name">AMA</div><div class="value" id="ama">— <span class="unit">cm</span></div></div>
+      <div class="metric"><div class="name">Baseline</div><div class="value" id="baseline">— <span class="unit">cm</span></div></div>
+      <div class="metric"><div class="name">MAE EMA</div><div class="value" id="mae_ema">— <span class="unit">cm</span></div></div>
+      <div class="metric"><div class="name">RMSE EMA</div><div class="value" id="rmse_ema">— <span class="unit">cm</span></div></div>
+      <div class="metric"><div class="name">MAE AMA</div><div class="value" id="mae_ama">— <span class="unit">cm</span></div></div>
+      <div class="metric"><div class="name">RMSE AMA</div><div class="value" id="rmse_ama">— <span class="unit">cm</span></div></div>
+    </div>
+    <div class="hint" id="sensorInfo">Status sensor: —</div>
+  </section>
+
+  <section class="panel">
+    <div class="section-head"><h2>Grafik real-time</h2><span class="small">Maks. 60 titik terakhir</span></div>
+    <div class="chart-wrap"><canvas id="chart"></canvas></div>
+    <div class="legend">
+      <span><i class="swatch" style="background:#ffcc70"></i>Raw</span>
+      <span><i class="swatch" style="background:#75a7ff"></i>EMA</span>
+      <span><i class="swatch" style="background:#55d6be"></i>AMA</span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="section-head">
+      <div><h2>Serial Monitor Web</h2><div class="small">Riwayat respons API terbaru</div></div>
+      <div class="actions"><button class="secondary" id="clearBtn">Bersihkan</button></div>
+    </div>
+    <div class="log" id="log" role="log" aria-live="polite"><div class="logline"><span class="ok">[INFO]</span> Dashboard siap. Masukkan alamat API ESP32 lalu tekan Hubungkan.</div></div>
+  </section>
+  <div class="footer">ESP32 Sensor Monitor · berjalan di browser HP maupun komputer</div>
+</div>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let timer = null, busy = false, points = [], lastPayload = null;
+  const pollMs = 1000;
+  const fields = ['raw','ema','ama','baseline','mae_ema','rmse_ema','mae_ama','rmse_ama'];
+  const fmt = v => (typeof v === 'number' && Number.isFinite(v)) ? v.toFixed(2) : (v === null || v === undefined ? '—' : String(v));
+  function addLog(message, type='') {
+    const log = $('log'), line = document.createElement('div'), now = new Date();
+    line.className = 'logline';
+    const t = now.toLocaleTimeString('id-ID', {hour12:false});
+    const time = document.createElement('span'); time.className='time'; time.textContent=`[${t}] `;
+    const body = document.createElement('span'); if(type) body.className=type; body.textContent=message;
+    line.append(time, body); log.appendChild(line);
+    while(log.children.length > 250) log.removeChild(log.firstChild);
+    log.scrollTop = log.scrollHeight;
+  }
+  function setConnected(on, label) {
+    $('statusDot').className = 'dot' + (on ? ' on' : (label ? ' bad' : ''));
+    $('statusText').textContent = label || (on ? 'Terhubung' : 'Terputus');
+    $('connectBtn').disabled = on; $('disconnectBtn').disabled = !on;
+  }
+  function base() {
+    let s = $('baseUrl').value.trim().replace(/\/+$/, '');
+    if (!/^https?:\/\//i.test(s)) s = 'http://' + s;
+    return s;
+  }
+  function valueFrom(data, key, alternatives=[]) {
+    if (data[key] !== undefined) return data[key];
+    for (const a of alternatives) if (data[a] !== undefined) return data[a];
+    return null;
+  }
+  function render(data) {
+    lastPayload = data;
+    const aliases = {
+      raw:['distance','jarak','raw_distance'],
+      ema:['EMA'], ama:['AMA'], baseline:['baseLine'],
+      mae_ema:['maeEma','MAE_EMA'], rmse_ema:['rmseEma','RMSE_EMA'],
+      mae_ama:['maeAma','MAE_AMA'], rmse_ama:['rmseAma','RMSE_AMA']
+    };
+    fields.forEach(k => {
+      const v = valueFrom(data, k, aliases[k] || []);
+      $(k).innerHTML = `${fmt(typeof v === 'string' && v.trim() !== '' ? Number(v) : v)} <span class="unit">cm</span>`;
+    });
+    const ready = data.sensor_ready;
+    const baselineReady = data.baseline_ready;
+    const samples = data.baseline_samples;
+    $('sensorInfo').textContent = `Sensor: ${ready === false ? 'belum siap / tidak ada pembacaan valid' : 'data diterima'} · Baseline: ${baselineReady === false ? 'mengumpulkan sampel' : 'siap'}${samples !== undefined ? ` (${samples} sampel)` : ''}`;
+    $('lastUpdate').textContent = 'Diperbarui ' + new Date().toLocaleTimeString('id-ID',{hour12:false});
+    points.push({raw:Number(data.raw), ema:Number(data.ema), ama:Number(data.ama)});
+    if(points.length > 60) points.shift();
+    drawChart();
+    addLog(JSON.stringify(data), 'ok');
+  }
+  async function poll() {
+    if (busy || !timer) return;
+    busy = true;
+    try {
+      const res = await fetch(base() + '/api/data', {cache:'no-store'});
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      render(data);
+      setConnected(true, 'Terhubung');
+    } catch (e) {
+      addLog(`Gagal mengambil /api/data: ${e.message}. Periksa IP, Wi-Fi, dan CORS.`, 'err');
+      setConnected(false, 'Koneksi gagal');
+      stop(false);
+    } finally { busy = false; }
+  }
+  function stop(log=true) {
+    if(timer) clearInterval(timer);
+    timer = null;
+    $('connectBtn').disabled = false; $('disconnectBtn').disabled = true;
+    if(log) addLog('Pemantauan dihentikan.', 'err');
+  }
+  async function connect() {
+    if(timer) clearInterval(timer);
+    const url = base();
+    $('baseUrl').value = url;
+    $('connectBtn').disabled = true;
+    addLog(`Mencoba menghubungkan ke ${url}/api/data …`);
+    try {
+      const res = await fetch(url + '/api/data', {cache:'no-store'});
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setConnected(true, 'Terhubung');
+      render(data);
+      timer = setInterval(poll, pollMs);
+      $('disconnectBtn').disabled = false;
+      addLog('Koneksi berhasil. Polling setiap 1 detik.', 'ok');
+    } catch(e) {
+      setConnected(false, 'Koneksi gagal');
+      $('connectBtn').disabled = false;
+      $('disconnectBtn').disabled = true;
+      addLog(`Koneksi gagal: ${e.message}. Pastikan API aktif dan alamat benar.`, 'err');
+    }
+  }
+  function drawChart() {
+    const canvas=$('chart'), rect=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.max(1,Math.floor(rect.width*dpr)); canvas.height=Math.max(1,Math.floor(rect.height*dpr));
+    const ctx=canvas.getContext('2d'); ctx.scale(dpr,dpr);
+    const w=rect.width,h=rect.height,pad={l:38,r:8,t:10,b:22};
+    ctx.clearRect(0,0,w,h);
+    const vals=points.flatMap(p=>[p.raw,p.ema,p.ama]).filter(Number.isFinite);
+    if(!vals.length){ctx.fillStyle='#9aabc4';ctx.font='12px system-ui';ctx.fillText('Data akan tampil setelah API terhubung',10,h/2);return}
+    let min=Math.min(...vals),max=Math.max(...vals); if(min===max){min-=1;max+=1}
+    const extra=(max-min)*.12;min-=extra;max+=extra;
+    const x=i=>pad.l+(w-pad.l-pad.r)*(points.length<=1?1:i)/(Math.max(1,points.length-1));
+    const y=v=>pad.t+(h-pad.t-pad.b)*(max-v)/(max-min);
+    ctx.strokeStyle='#25354b';ctx.lineWidth=1;ctx.fillStyle='#91a4bf';ctx.font='10px system-ui';ctx.textAlign='right';
+    for(let i=0;i<=4;i++){const yy=pad.t+(h-pad.t-pad.b)*i/4;ctx.beginPath();ctx.moveTo(pad.l,yy);ctx.lineTo(w-pad.r,yy);ctx.stroke();ctx.fillText((max-(max-min)*i/4).toFixed(1),pad.l-6,yy+3)}
+    const series=[['raw','#ffcc70'],['ema','#75a7ff'],['ama','#55d6be']];
+    series.forEach(([key,color])=>{ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();let started=false;points.forEach((p,i)=>{const v=p[key];if(!Number.isFinite(v))return; if(!started){ctx.moveTo(x(i),y(v));started=true}else ctx.lineTo(x(i),y(v))});ctx.stroke()});
+    ctx.textAlign='left';ctx.fillStyle='#91a4bf';ctx.fillText('lama →',pad.l,h-4);
+  }
+  $('connectBtn').addEventListener('click', connect);
+  $('disconnectBtn').addEventListener('click',()=>stop());
+  $('clearBtn').addEventListener('click',()=>{$('log').innerHTML='';addLog('Log dibersihkan.')});
+  $('baseUrl').addEventListener('keydown',e=>{if(e.key==='Enter')connect()});
+  window.addEventListener('resize',drawChart);
+})();
+</script>
+</body>
+</html>
